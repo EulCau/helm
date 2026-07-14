@@ -36,4 +36,12 @@ cargo test
 ./scripts/package.sh windows
 ```
 
-Arch 构建需要 `makepkg`; Debian 和 Fedora 构建器缺失时脚本会安装对应 Cargo 工具. MSI 构建必须在装有 WiX Toolset 的 Windows 环境运行. `all` 只适合具备全部原生打包环境的 CI 矩阵; 不支持从单一 Linux 主机直接生成所有原生安装包.
+Arch 构建需要 `makepkg`; Debian 和 Fedora 构建器缺失时脚本会安装对应 Cargo 工具. MSI 使用新版 WiX Toolset 的 `wix.exe build` 生成, 必须在装有 .NET SDK 和 WiX v4 或更高版本的 Windows Git Bash 环境运行:
+
+```bash
+dotnet tool install --global wix
+wix --version
+./scripts/package.sh windows
+```
+
+项目不再依赖 `cargo-wix`、`candle.exe` 或 `light.exe`. `all` 只适合具备全部原生打包环境的 CI 矩阵; 不支持从单一 Linux 主机直接生成所有原生安装包.

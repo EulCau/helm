@@ -31,13 +31,28 @@ case "$target" in
     ;;
   windows)
     if [[ "${OS:-}" != "Windows_NT" ]]; then
-      echo "MSI 必须在装有 WiX Toolset 的 Windows 环境中生成." >&2
+      echo "MSI 必须在装有新版 WiX Toolset 的 Windows 环境中生成." >&2
       echo "请在 Windows PowerShell 或 Git Bash 中运行: scripts/package.sh windows" >&2
       exit 1
     fi
-    command -v cargo-wix >/dev/null || cargo install cargo-wix --locked
-    cargo wix --nocapture
-    cp target/wix/*.msi dist/
+    command -v wix >/dev/null || {
+      echo "找不到 wix.exe. 请运行: dotnet tool install --global wix" >&2
+      exit 1
+    }
+    command -v cygpath >/dev/null || {
+      echo "Windows 打包脚本需要在 Git Bash 中运行." >&2
+      exit 1
+    }
+    build_release
+    version="$(awk -F '"' '/^version = / { print $2; exit }' Cargo.toml)"
+    binary="$(cygpath -w "$root/target/release/helm.exe")"
+    output="$(cygpath -w "$root/dist/helm-$version-x86_64.msi")"
+    wix build \
+      -arch x64 \
+      -d "AppBinary=$binary" \
+      -d "Version=$version" \
+      -out "$output" \
+      wix/main.wxs
     ;;
   all)
     "$0" arch
