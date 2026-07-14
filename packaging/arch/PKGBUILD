@@ -1,0 +1,14 @@
+pkgname=cipher-vault
+pkgver=0.1.0
+pkgrel=1
+pkgdesc='Local password vault whose master password is never stored'
+arch=('x86_64')
+license=('MIT')
+depends=('gcc-libs' 'glibc' 'libx11' 'libxcb' 'libxkbcommon' 'wayland')
+makedepends=('cargo')
+options=('!lto')
+
+package() {
+  install -Dm755 "$startdir/../../target/release/cipher-vault" "$pkgdir/usr/bin/cipher-vault"
+  install -Dm644 "$startdir/../linux/cipher-vault.desktop" "$pkgdir/usr/share/applications/cipher-vault.desktop"
+}

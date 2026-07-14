@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=Cipher Vault
+Comment=Local password vault
+Exec=cipher-vault
+Terminal=false
+Categories=Utility;Security;
