@@ -1,4 +1,4 @@
-pkgname=cipher-vault
+pkgname=helm
 pkgver=0.1.0
 pkgrel=1
 pkgdesc='Local password vault whose master password is never stored'
@@ -9,6 +9,6 @@ makedepends=('cargo')
 options=('!lto')
 
 package() {
-  install -Dm755 "$startdir/../../target/release/cipher-vault" "$pkgdir/usr/bin/cipher-vault"
-  install -Dm644 "$startdir/../linux/cipher-vault.desktop" "$pkgdir/usr/share/applications/cipher-vault.desktop"
+  install -Dm755 "$startdir/../../target/release/helm" "$pkgdir/usr/bin/helm"
+  install -Dm644 "$startdir/../linux/helm.desktop" "$pkgdir/usr/share/applications/helm.desktop"
 }

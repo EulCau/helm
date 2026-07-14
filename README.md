@@ -1,4 +1,4 @@
-# Cipher Vault
+# Helm
 
 一个使用 Rust 和 egui/eframe 编写的跨平台本地密码保险箱.
 
@@ -18,7 +18,7 @@
 cargo run --release
 ```
 
-数据位置由 eframe 的平台数据目录决定. Linux 默认为 `~/.local/share/io.github.cipher-vault/vault.json`, Windows 位于用户的 Roaming AppData 下.
+数据位置由平台数据目录决定. Linux 默认为 `~/.local/share/io.github.eulcau.helm/vault.json`, Windows 位于用户的 Roaming AppData 下.
 
 ## 测试
 

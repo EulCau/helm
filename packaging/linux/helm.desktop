@@ -1,7 +1,7 @@
 [Desktop Entry]
 Type=Application
-Name=Cipher Vault
+Name=Helm
 Comment=Local password vault
-Exec=cipher-vault
+Exec=helm
 Terminal=false
 Categories=Utility;Security;

@@ -15,7 +15,7 @@ case "$target" in
     command -v makepkg >/dev/null || { echo "需要 Arch 的 makepkg" >&2; exit 1; }
     build_release
     (cd packaging/arch && makepkg --force --nodeps)
-    cp packaging/arch/cipher-vault-*.pkg.tar.* dist/
+    cp packaging/arch/helm-*.pkg.tar.* dist/
     ;;
   debian)
     command -v cargo-deb >/dev/null || cargo install cargo-deb --locked

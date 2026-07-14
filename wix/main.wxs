@@ -3,25 +3,25 @@ Wall time: 0.1 seconds
 Output:
 <?xml version="1.0" encoding="utf-8"?>
 <Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
-  <Product Id="*" Name="Cipher Vault" Language="1033" Version="0.1.0" Manufacturer="Cipher Vault" UpgradeCode="4D326D9F-561D-4599-80C0-34B67D4230AA">
+  <Product Id="*" Name="Helm" Language="1033" Version="0.1.0" Manufacturer="Helm" UpgradeCode="4D326D9F-561D-4599-80C0-34B67D4230AA">
     <Package InstallerVersion="500" Compressed="yes" InstallScope="perMachine" />
     <MajorUpgrade DowngradeErrorMessage="A newer version is already installed." />
     <MediaTemplate EmbedCab="yes" />
-    <Feature Id="ProductFeature" Title="Cipher Vault" Level="1">
+    <Feature Id="ProductFeature" Title="Helm" Level="1">
       <ComponentGroupRef Id="ProductComponents" />
     </Feature>
   </Product>
   <Fragment>
     <Directory Id="TARGETDIR" Name="SourceDir">
       <Directory Id="ProgramFilesFolder">
-        <Directory Id="INSTALLFOLDER" Name="Cipher Vault" />
+        <Directory Id="INSTALLFOLDER" Name="Helm" />
       </Directory>
     </Directory>
   </Fragment>
   <Fragment>
     <ComponentGroup Id="ProductComponents" Directory="INSTALLFOLDER">
       <Component Id="ApplicationFiles" Guid="7FC751C2-5737-4AEC-9904-B44DCD2F865C">
-        <File Id="CipherVaultExe" Source="$(var.CargoTargetBinDir)\cipher-vault.exe" KeyPath="yes" />
+        <File Id="HelmExe" Source="$(var.CargoTargetBinDir)\helm.exe" KeyPath="yes" />
       </Component>
     </ComponentGroup>
   </Fragment>

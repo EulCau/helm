@@ -8,20 +8,20 @@ use eframe::egui::{self, Color32, FontId, RichText, Stroke};
 use store::{VaultData, VaultEntry, VaultStore};
 use zeroize::{Zeroize, Zeroizing};
 
-const APP_ID: &str = "io.github.cipher-vault";
+const APP_ID: &str = "io.github.eulcau.helm";
 
 fn main() -> eframe::Result {
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_app_id(APP_ID)
-            .with_title("Cipher Vault")
+            .with_title("Helm")
             .with_inner_size([980.0, 680.0])
             .with_min_inner_size([760.0, 520.0]),
         centered: true,
         ..Default::default()
     };
     eframe::run_native(
-        "Cipher Vault",
+        "Helm",
         options,
         Box::new(|cc| Ok(Box::new(VaultApp::new(cc)))),
     )
@@ -123,7 +123,7 @@ impl VaultApp {
         ui.horizontal(|ui| {
             ui.vertical(|ui| {
                 ui.label(
-                    RichText::new("CIPHER VAULT")
+                    RichText::new("HELM")
                         .size(12.0)
                         .strong()
                         .color(Color32::from_rgb(109, 124, 255)),

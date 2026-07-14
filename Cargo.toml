@@ -1,5 +1,5 @@
 [package]
-name = "cipher-vault"
+name = "helm"
 version = "0.1.0"
 edition = "2024"
 description = "A local password vault whose master password is never stored"
@@ -26,12 +26,12 @@ strip = true
 section = "utils"
 priority = "optional"
 assets = [
-    ["target/release/cipher-vault", "usr/bin/", "755"],
-    ["packaging/linux/cipher-vault.desktop", "usr/share/applications/", "644"],
+    ["target/release/helm", "usr/bin/", "755"],
+    ["packaging/linux/helm.desktop", "usr/share/applications/", "644"],
 ]
 
 [package.metadata.generate-rpm]
 assets = [
-    { source = "target/release/cipher-vault", dest = "/usr/bin/cipher-vault", mode = "755" },
-    { source = "packaging/linux/cipher-vault.desktop", dest = "/usr/share/applications/cipher-vault.desktop", mode = "644" },
+    { source = "target/release/helm", dest = "/usr/bin/helm", mode = "755" },
+    { source = "packaging/linux/helm.desktop", dest = "/usr/share/applications/helm.desktop", mode = "644" },
 ]
