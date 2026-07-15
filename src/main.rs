@@ -1,10 +1,15 @@
 mod crypto;
 mod store;
 
-use std::{env, path::PathBuf, sync::Arc};
+use std::{
+    env, fs, io,
+    path::{Path, PathBuf},
+    sync::Arc,
+};
 
 use base64::{Engine, engine::general_purpose::STANDARD};
 use eframe::egui::{self, Color32, CornerRadius, FontId, RichText, Stroke};
+use serde::{Deserialize, Serialize};
 use store::{VaultData, VaultEntry, VaultStore};
 use zeroize::{Zeroize, Zeroizing};
 
@@ -12,6 +17,17 @@ const APP_ID: &str = "io.github.eulcau.helm";
 const CONTENT_WIDTH: f32 = 1040.0;
 const ICON_BYTES: &[u8] = include_bytes!("../assets/icons/helm-512.png");
 const CJK_FONT_BYTES: &[u8] = include_bytes!("../assets/fonts/SourceHanSansCN-Regular.otf");
+
+#[derive(Deserialize, Serialize)]
+struct AppSettings {
+    dark_mode: bool,
+}
+
+impl Default for AppSettings {
+    fn default() -> Self {
+        Self { dark_mode: true }
+    }
+}
 
 fn main() -> eframe::Result {
     let icon = load_icon();
@@ -120,6 +136,7 @@ struct VaultApp {
     status: Option<(String, bool)>,
     pending_delete: Option<usize>,
     icon_texture: egui::TextureHandle,
+    settings_path: PathBuf,
 }
 
 impl VaultApp {
@@ -147,7 +164,13 @@ impl VaultApp {
                 Some((format!("无法读取保险箱: {error}"), true)),
             ),
         };
-        cc.egui_ctx.set_theme(egui::Theme::Dark);
+        let settings_path = app_data_dir().join("settings.json");
+        let dark_mode = load_settings(&settings_path).dark_mode;
+        cc.egui_ctx.set_theme(if dark_mode {
+            egui::Theme::Dark
+        } else {
+            egui::Theme::Light
+        });
         Self {
             store,
             data,
@@ -155,10 +178,11 @@ impl VaultApp {
             derived_key: None,
             new_name: String::new(),
             new_password: String::new(),
-            dark_mode: true,
+            dark_mode,
             status,
             pending_delete: None,
             icon_texture,
+            settings_path,
         }
     }
 
@@ -232,6 +256,29 @@ impl VaultApp {
             .inner_margin(22)
     }
 
+    fn paint_theme_icon(ui: &egui::Ui, response: &egui::Response, dark_mode: bool, color: Color32) {
+        let painter = ui.painter();
+        let center = egui::pos2(response.rect.left() + 19.0, response.rect.center().y);
+        if dark_mode {
+            painter.circle_filled(center, 6.0, color);
+            painter.circle_filled(
+                center + egui::vec2(3.0, -2.0),
+                5.0,
+                ui.style().interact(response).bg_fill,
+            );
+        } else {
+            painter.circle_stroke(center, 4.0, Stroke::new(1.5, color));
+            for index in 0..8 {
+                let angle = index as f32 * std::f32::consts::TAU / 8.0;
+                let direction = egui::vec2(angle.cos(), angle.sin());
+                painter.line_segment(
+                    [center + direction * 6.0, center + direction * 8.0],
+                    Stroke::new(1.5, color),
+                );
+            }
+        }
+    }
+
     fn header(&mut self, ui: &mut egui::Ui, palette: Palette) {
         ui.horizontal(|ui| {
             ui.add(egui::Image::new(&self.icon_texture).fit_to_exact_size(egui::vec2(54.0, 54.0)));
@@ -253,22 +300,27 @@ impl VaultApp {
 
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 let label = if self.dark_mode {
-                    "☾  深色模式"
+                    "深色模式"
                 } else {
-                    "☀  浅色模式"
+                    "浅色模式"
                 };
-                if ui
+                let response = ui
                     .add(
-                        egui::Button::new(RichText::new(label).color(palette.text))
-                            .fill(palette.card)
-                            .stroke(Stroke::new(1.0, palette.border))
-                            .corner_radius(CornerRadius::same(12))
-                            .min_size(egui::vec2(120.0, 42.0)),
+                        egui::Button::new(
+                            RichText::new(format!("    {label}")).color(palette.text),
+                        )
+                        .fill(palette.card)
+                        .stroke(Stroke::new(1.0, palette.border))
+                        .corner_radius(CornerRadius::same(12))
+                        .min_size(egui::vec2(120.0, 42.0)),
                     )
-                    .on_hover_text("切换界面主题")
-                    .clicked()
-                {
+                    .on_hover_text("切换界面主题");
+                Self::paint_theme_icon(ui, &response, self.dark_mode, palette.text);
+                if response.clicked() {
                     self.dark_mode = !self.dark_mode;
+                    if let Err(error) = save_settings(&self.settings_path, self.dark_mode) {
+                        self.status = Some((format!("无法保存色彩模式: {error}"), true));
+                    }
                 }
             });
         });
@@ -651,16 +703,34 @@ impl VaultApp {
     }
 }
 
-fn vault_data_path() -> PathBuf {
+fn app_data_dir() -> PathBuf {
     #[cfg(windows)]
     let base = env::var_os("APPDATA").map(PathBuf::from);
     #[cfg(not(windows))]
     let base = env::var_os("XDG_DATA_HOME")
         .map(PathBuf::from)
         .or_else(|| env::var_os("HOME").map(|home| PathBuf::from(home).join(".local/share")));
-    base.unwrap_or_else(|| PathBuf::from("."))
-        .join(APP_ID)
-        .join("vault.json")
+    base.unwrap_or_else(|| PathBuf::from(".")).join(APP_ID)
+}
+
+fn vault_data_path() -> PathBuf {
+    app_data_dir().join("vault.json")
+}
+
+fn load_settings(path: &Path) -> AppSettings {
+    fs::read(path)
+        .ok()
+        .and_then(|bytes| serde_json::from_slice(&bytes).ok())
+        .unwrap_or_default()
+}
+
+fn save_settings(path: &Path, dark_mode: bool) -> io::Result<()> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    let settings = AppSettings { dark_mode };
+    let bytes = serde_json::to_vec_pretty(&settings).map_err(io::Error::other)?;
+    fs::write(path, bytes)
 }
 
 impl eframe::App for VaultApp {
@@ -712,5 +782,24 @@ impl Drop for VaultApp {
     fn drop(&mut self) {
         self.master_password.zeroize();
         self.new_password.zeroize();
+    }
+}
+
+#[cfg(test)]
+mod settings_tests {
+    use super::*;
+
+    #[test]
+    fn persists_color_mode() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("settings.json");
+
+        save_settings(&path, false).unwrap();
+
+        assert!(!load_settings(&path).dark_mode);
+        assert_eq!(
+            fs::read_to_string(path).unwrap(),
+            "{\n  \"dark_mode\": false\n}"
+        );
     }
 }
