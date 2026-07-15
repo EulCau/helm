@@ -9,11 +9,14 @@
     Scope="perMachine">
     <MajorUpgrade DowngradeErrorMessage="A newer version of Helm is already installed." />
     <MediaTemplate EmbedCab="yes" />
-    <Icon Id="HelmIcon" SourceFile="$(IconFile)" />
-    <Property Id="ARPPRODUCTICON" Value="HelmIcon" />
+    <Icon Id="HelmIcon.exe" SourceFile="$(IconFile)" />
+    <Property Id="ARPPRODUCTICON" Value="HelmIcon.exe" />
 
     <StandardDirectory Id="ProgramFiles6432Folder">
       <Directory Id="INSTALLFOLDER" Name="Helm" />
+    </StandardDirectory>
+    <StandardDirectory Id="ProgramMenuFolder">
+      <Directory Id="ApplicationProgramsFolder" Name="Helm" />
     </StandardDirectory>
 
     <Feature Id="ProductFeature" Title="Helm" Level="1">
@@ -22,7 +25,19 @@
 
     <ComponentGroup Id="ProductComponents" Directory="INSTALLFOLDER">
       <Component Id="ApplicationFiles" Guid="7FC751C2-5737-4AEC-9904-B44DCD2F865C">
-        <File Id="HelmExe" Source="$(AppBinary)" KeyPath="yes" />
+        <File Id="HelmExe" Source="$(AppBinary)" KeyPath="yes">
+          <Shortcut
+            Id="HelmStartMenuShortcut"
+            Directory="ApplicationProgramsFolder"
+            Name="Helm"
+            Description="Local password vault"
+            WorkingDirectory="INSTALLFOLDER"
+            Icon="HelmIcon.exe" />
+        </File>
+        <RemoveFolder
+          Id="RemoveApplicationProgramsFolder"
+          Directory="ApplicationProgramsFolder"
+          On="uninstall" />
       </Component>
     </ComponentGroup>
   </Package>
