@@ -3,5 +3,6 @@ Type=Application
 Name=Helm
 Comment=Local password vault
 Exec=helm
+Icon=helm
 Terminal=false
 Categories=Utility;Security;

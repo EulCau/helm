@@ -11,4 +11,5 @@ options=('!lto')
 package() {
   install -Dm755 "$startdir/../../target/release/helm" "$pkgdir/usr/bin/helm"
   install -Dm644 "$startdir/../linux/helm.desktop" "$pkgdir/usr/share/applications/helm.desktop"
+  install -Dm644 "$startdir/../../assets/icons/helm-512.png" "$pkgdir/usr/share/icons/hicolor/512x512/apps/helm.png"
 }

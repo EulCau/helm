@@ -9,6 +9,8 @@
     Scope="perMachine">
     <MajorUpgrade DowngradeErrorMessage="A newer version of Helm is already installed." />
     <MediaTemplate EmbedCab="yes" />
+    <Icon Id="HelmIcon" SourceFile="$(IconFile)" />
+    <Property Id="ARPPRODUCTICON" Value="HelmIcon" />
 
     <StandardDirectory Id="ProgramFiles6432Folder">
       <Directory Id="INSTALLFOLDER" Name="Helm" />

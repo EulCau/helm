@@ -46,10 +46,12 @@ case "$target" in
     build_release
     version="$(awk -F '"' '/^version = / { print $2; exit }' Cargo.toml)"
     binary="$(cygpath -w "$root/target/release/helm.exe")"
+    icon="$(cygpath -w "$root/assets/icons/helm.ico")"
     output="$(cygpath -w "$root/dist/helm-$version-x86_64.msi")"
     wix build \
       -arch x64 \
       -d "AppBinary=$binary" \
+      -d "IconFile=$icon" \
       -d "Version=$version" \
       -out "$output" \
       wix/main.wxs

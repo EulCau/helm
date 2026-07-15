@@ -11,6 +11,7 @@ base64 = "0.22"
 chacha20 = "0.9"
 eframe = { version = "0.35", default-features = false, features = ["accesskit", "glow", "wayland", "x11"] }
 getrandom = "0.4"
+image = { version = "0.25", default-features = false, features = ["png"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 zeroize = "1"
@@ -28,10 +29,12 @@ priority = "optional"
 assets = [
     ["target/release/helm", "usr/bin/", "755"],
     ["packaging/linux/helm.desktop", "usr/share/applications/", "644"],
+    ["assets/icons/helm-512.png", "usr/share/icons/hicolor/512x512/apps/helm.png", "644"],
 ]
 
 [package.metadata.generate-rpm]
 assets = [
     { source = "target/release/helm", dest = "/usr/bin/helm", mode = "755" },
     { source = "packaging/linux/helm.desktop", dest = "/usr/share/applications/helm.desktop", mode = "644" },
+    { source = "assets/icons/helm-512.png", dest = "/usr/share/icons/hicolor/512x512/apps/helm.png", mode = "644" },
 ]

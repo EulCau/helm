@@ -1,22 +1,27 @@
 mod crypto;
 mod store;
 
-use std::{env, path::PathBuf};
+use std::{env, path::PathBuf, sync::Arc};
 
 use base64::{Engine, engine::general_purpose::STANDARD};
-use eframe::egui::{self, Color32, FontId, RichText, Stroke};
+use eframe::egui::{self, Color32, CornerRadius, FontId, RichText, Stroke};
 use store::{VaultData, VaultEntry, VaultStore};
 use zeroize::{Zeroize, Zeroizing};
 
 const APP_ID: &str = "io.github.eulcau.helm";
+const CONTENT_WIDTH: f32 = 1040.0;
+const ICON_BYTES: &[u8] = include_bytes!("../assets/icons/helm-512.png");
+const CJK_FONT_BYTES: &[u8] = include_bytes!("../assets/fonts/SourceHanSansCN-Regular.otf");
 
 fn main() -> eframe::Result {
+    let icon = load_icon();
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_app_id(APP_ID)
             .with_title("Helm")
-            .with_inner_size([980.0, 680.0])
-            .with_min_inner_size([760.0, 520.0]),
+            .with_icon(icon)
+            .with_inner_size([1080.0, 780.0])
+            .with_min_inner_size([760.0, 560.0]),
         centered: true,
         ..Default::default()
     };
@@ -25,6 +30,83 @@ fn main() -> eframe::Result {
         options,
         Box::new(|cc| Ok(Box::new(VaultApp::new(cc)))),
     )
+}
+
+fn load_icon() -> egui::IconData {
+    let image = image::load_from_memory(ICON_BYTES)
+        .expect("内置图标无法解码")
+        .into_rgba8();
+    let (width, height) = image.dimensions();
+    egui::IconData {
+        rgba: image.into_raw(),
+        width,
+        height,
+    }
+}
+
+fn configure_fonts(ctx: &egui::Context) {
+    let mut fonts = egui::FontDefinitions::default();
+    fonts.font_data.insert(
+        "source_han_sans_cn".into(),
+        Arc::new(egui::FontData::from_static(CJK_FONT_BYTES)),
+    );
+    fonts
+        .families
+        .get_mut(&egui::FontFamily::Proportional)
+        .expect("默认比例字体族不存在")
+        .insert(0, "source_han_sans_cn".into());
+    fonts
+        .families
+        .get_mut(&egui::FontFamily::Monospace)
+        .expect("默认等宽字体族不存在")
+        .push("source_han_sans_cn".into());
+    ctx.set_fonts(fonts);
+}
+
+#[derive(Clone, Copy)]
+struct Palette {
+    background: Color32,
+    card: Color32,
+    raised: Color32,
+    border: Color32,
+    text: Color32,
+    muted: Color32,
+    accent: Color32,
+    accent_hover: Color32,
+    danger: Color32,
+    success: Color32,
+}
+
+impl Palette {
+    fn for_mode(dark: bool) -> Self {
+        if dark {
+            Self {
+                background: Color32::from_rgb(10, 14, 25),
+                card: Color32::from_rgb(18, 24, 40),
+                raised: Color32::from_rgb(25, 33, 52),
+                border: Color32::from_rgb(43, 53, 76),
+                text: Color32::from_rgb(242, 245, 252),
+                muted: Color32::from_rgb(148, 160, 184),
+                accent: Color32::from_rgb(111, 126, 255),
+                accent_hover: Color32::from_rgb(130, 143, 255),
+                danger: Color32::from_rgb(242, 104, 119),
+                success: Color32::from_rgb(72, 196, 145),
+            }
+        } else {
+            Self {
+                background: Color32::from_rgb(244, 246, 251),
+                card: Color32::WHITE,
+                raised: Color32::from_rgb(241, 244, 249),
+                border: Color32::from_rgb(220, 226, 236),
+                text: Color32::from_rgb(27, 35, 52),
+                muted: Color32::from_rgb(105, 116, 137),
+                accent: Color32::from_rgb(82, 99, 222),
+                accent_hover: Color32::from_rgb(69, 84, 202),
+                danger: Color32::from_rgb(207, 67, 82),
+                success: Color32::from_rgb(35, 151, 105),
+            }
+        }
+    }
 }
 
 struct VaultApp {
@@ -36,12 +118,22 @@ struct VaultApp {
     new_password: String,
     dark_mode: bool,
     status: Option<(String, bool)>,
+    pending_delete: Option<usize>,
+    icon_texture: egui::TextureHandle,
 }
 
 impl VaultApp {
     fn new(cc: &eframe::CreationContext<'_>) -> Self {
-        let path = vault_data_path();
-        let store = VaultStore::new(path);
+        configure_fonts(&cc.egui_ctx);
+        let icon = load_icon();
+        let icon_image = egui::ColorImage::from_rgba_unmultiplied(
+            [icon.width as usize, icon.height as usize],
+            &icon.rgba,
+        );
+        let icon_texture =
+            cc.egui_ctx
+                .load_texture("helm-app-icon", icon_image, egui::TextureOptions::LINEAR);
+        let store = VaultStore::new(vault_data_path());
         let fresh_data = || VaultData::new(crypto::random_salt().expect("系统安全随机数不可用"));
         let (data, status) = match store.load() {
             Ok(Some(data)) if data.decode_salt().is_some() => (data, None),
@@ -65,6 +157,8 @@ impl VaultApp {
             new_password: String::new(),
             dark_mode: true,
             status,
+            pending_delete: None,
+            icon_texture,
         }
     }
 
@@ -78,7 +172,7 @@ impl VaultApp {
     fn add_entry(&mut self) {
         let name = self.new_name.trim();
         if name.is_empty() || self.new_password.is_empty() || self.master_password.is_empty() {
-            self.status = Some(("名称、统一密码和待保存密码均不能为空".into(), true));
+            self.status = Some(("名称, 统一密码和待保存密码均不能为空".into(), true));
             return;
         }
         if self.data.entries.iter().any(|entry| entry.name == name) {
@@ -96,6 +190,7 @@ impl VaultApp {
                     .push(VaultEntry::from_bytes(name.to_owned(), nonce, ciphertext));
                 self.new_name.clear();
                 self.new_password.zeroize();
+                self.pending_delete = None;
                 self.save();
             }
             Err(_) => self.status = Some(("无法取得安全随机数或初始化加密参数".into(), true)),
@@ -119,163 +214,440 @@ impl VaultApp {
         }
     }
 
-    fn header(&mut self, ui: &mut egui::Ui) {
+    fn refresh_key(&mut self) {
+        self.derived_key = if self.master_password.is_empty() {
+            None
+        } else {
+            self.data
+                .decode_salt()
+                .and_then(|salt| crypto::derive_key(&self.master_password, &salt).ok())
+        };
+    }
+
+    fn card(palette: Palette) -> egui::Frame {
+        egui::Frame::new()
+            .fill(palette.card)
+            .stroke(Stroke::new(1.0, palette.border))
+            .corner_radius(CornerRadius::same(18))
+            .inner_margin(22)
+    }
+
+    fn header(&mut self, ui: &mut egui::Ui, palette: Palette) {
         ui.horizontal(|ui| {
+            ui.add(egui::Image::new(&self.icon_texture).fit_to_exact_size(egui::vec2(54.0, 54.0)));
+            ui.add_space(4.0);
             ui.vertical(|ui| {
                 ui.label(
                     RichText::new("HELM")
-                        .size(12.0)
+                        .size(11.0)
                         .strong()
-                        .color(Color32::from_rgb(109, 124, 255)),
+                        .color(palette.accent),
                 );
-                ui.heading(RichText::new("密码保险箱").size(28.0));
-                ui.label(RichText::new("统一密码只存在于当前进程内存中").weak());
+                ui.label(
+                    RichText::new("密码保险箱")
+                        .size(26.0)
+                        .strong()
+                        .color(palette.text),
+                );
             });
+
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 let label = if self.dark_mode {
-                    "☾  深色"
+                    "☾  深色模式"
                 } else {
-                    "☀  浅色"
+                    "☀  浅色模式"
                 };
                 if ui
-                    .button(label)
-                    .on_hover_text("切换浅色/深色模式")
+                    .add(
+                        egui::Button::new(RichText::new(label).color(palette.text))
+                            .fill(palette.card)
+                            .stroke(Stroke::new(1.0, palette.border))
+                            .corner_radius(CornerRadius::same(12))
+                            .min_size(egui::vec2(120.0, 42.0)),
+                    )
+                    .on_hover_text("切换界面主题")
                     .clicked()
                 {
                     self.dark_mode = !self.dark_mode;
-                    ui.ctx().set_theme(if self.dark_mode {
-                        egui::Theme::Dark
-                    } else {
-                        egui::Theme::Light
-                    });
                 }
             });
         });
     }
 
-    fn master_input(&mut self, ui: &mut egui::Ui) {
-        egui::Frame::group(ui.style())
-            .inner_margin(18)
-            .show(ui, |ui| {
-                ui.label(RichText::new("统一密码").strong());
-                ui.add_space(6.0);
-                let mut asterisk_layouter =
-                    |ui: &egui::Ui, text: &dyn egui::TextBuffer, wrap_width: f32| {
-                        let masked = text.as_str().replace('•', "*");
-                        ui.fonts_mut(|fonts| {
-                            fonts.layout(
-                                masked,
-                                FontId::proportional(16.0),
-                                ui.visuals().text_color(),
-                                wrap_width,
-                            )
-                        })
+    fn master_card(&mut self, ui: &mut egui::Ui, palette: Palette) {
+        Self::card(palette).show(ui, |ui| {
+            ui.horizontal(|ui| {
+                ui.vertical(|ui| {
+                    ui.label(
+                        RichText::new("统一密码")
+                            .size(19.0)
+                            .strong()
+                            .color(palette.text),
+                    );
+                    ui.label(
+                        RichText::new("只保留在当前进程内存中, 输入后立即更新所有结果")
+                            .size(13.0)
+                            .color(palette.muted),
+                    );
+                });
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    let (label, color) = if self.master_password.is_empty() {
+                        ("密文模式", palette.muted)
+                    } else {
+                        ("实时解密", palette.success)
                     };
+                    egui::Frame::new()
+                        .fill(palette.raised)
+                        .corner_radius(CornerRadius::same(10))
+                        .inner_margin(egui::Margin::symmetric(11, 7))
+                        .show(ui, |ui| {
+                            ui.label(RichText::new(label).size(12.0).strong().color(color));
+                        });
+                });
+            });
+            ui.add_space(15.0);
+
+            let mut asterisk_layouter =
+                |ui: &egui::Ui, text: &dyn egui::TextBuffer, wrap_width: f32| {
+                    let masked = text.as_str().replace('•', "*");
+                    ui.fonts_mut(|fonts| {
+                        fonts.layout(
+                            masked,
+                            FontId::proportional(16.0),
+                            ui.visuals().text_color(),
+                            wrap_width,
+                        )
+                    })
+                };
+            let available = ui.available_width();
+            let mut changed = false;
+            ui.horizontal(|ui| {
+                let input_width = if self.master_password.is_empty() {
+                    available
+                } else {
+                    available - 82.0
+                };
                 let response = ui.add_sized(
-                    [ui.available_width(), 42.0],
+                    [input_width, 46.0],
                     egui::TextEdit::singleline(&mut self.master_password)
                         .password(true)
                         .layouter(&mut asterisk_layouter)
-                        .hint_text("输入后实时解密; 清空则显示密文"),
+                        .background_color(palette.raised)
+                        .margin(12)
+                        .hint_text("输入统一密码"),
                 );
-                let changed = response.changed();
+                changed |= response.changed();
                 response.on_hover_text("输入内容不会写入磁盘");
-                if changed {
-                    self.derived_key = if self.master_password.is_empty() {
-                        None
-                    } else {
-                        self.data
-                            .decode_salt()
-                            .and_then(|salt| crypto::derive_key(&self.master_password, &salt).ok())
-                    };
+                if !self.master_password.is_empty()
+                    && ui
+                        .add(
+                            egui::Button::new(RichText::new("清空").color(palette.muted))
+                                .fill(palette.raised)
+                                .corner_radius(CornerRadius::same(11))
+                                .min_size(egui::vec2(70.0, 46.0)),
+                        )
+                        .clicked()
+                {
+                    self.master_password.zeroize();
+                    changed = true;
                 }
             });
+            if changed {
+                self.refresh_key();
+                self.pending_delete = None;
+            }
+        });
     }
 
-    fn add_form(&mut self, ui: &mut egui::Ui) {
-        egui::CollapsingHeader::new(RichText::new("＋ 添加密码").strong())
-            .default_open(self.data.entries.is_empty())
+    fn add_card(&mut self, ui: &mut egui::Ui, palette: Palette) {
+        Self::card(palette).show(ui, |ui| {
+            ui.label(
+                RichText::new("添加密码")
+                    .size(19.0)
+                    .strong()
+                    .color(palette.text),
+            );
+            ui.label(
+                RichText::new("填写名称和密码, 使用当前统一密码加密保存")
+                    .size(13.0)
+                    .color(palette.muted),
+            );
+            ui.add_space(15.0);
+
+            let width = ui.available_width();
+            let mut submit_by_enter = false;
+            ui.horizontal(|ui| {
+                ui.add_sized(
+                    [width * 0.34, 44.0],
+                    egui::TextEdit::singleline(&mut self.new_name)
+                        .background_color(palette.raised)
+                        .margin(11)
+                        .hint_text("名称, 如 GitHub"),
+                );
+                let response = ui.add_sized(
+                    [width * 0.66 - 10.0, 44.0],
+                    egui::TextEdit::singleline(&mut self.new_password)
+                        .password(true)
+                        .background_color(palette.raised)
+                        .margin(11)
+                        .hint_text("要保存的密码"),
+                );
+                submit_by_enter =
+                    response.lost_focus() && ui.input(|input| input.key_pressed(egui::Key::Enter));
+            });
+            ui.add_space(10.0);
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                let enabled = !self.master_password.is_empty()
+                    && !self.new_name.trim().is_empty()
+                    && !self.new_password.is_empty();
+                let button =
+                    egui::Button::new(RichText::new("加密并保存").strong().color(Color32::WHITE))
+                        .fill(if enabled {
+                            palette.accent
+                        } else {
+                            palette.muted
+                        })
+                        .corner_radius(CornerRadius::same(11))
+                        .min_size(egui::vec2(132.0, 42.0));
+                if ui.add_enabled(enabled, button).clicked() || (enabled && submit_by_enter) {
+                    self.add_entry();
+                }
+            });
+        });
+    }
+
+    fn status_card(&self, ui: &mut egui::Ui, palette: Palette) {
+        let Some((message, is_error)) = &self.status else {
+            return;
+        };
+        let color = if *is_error {
+            palette.danger
+        } else {
+            palette.success
+        };
+        egui::Frame::new()
+            .fill(palette.card)
+            .stroke(Stroke::new(1.0, color))
+            .corner_radius(CornerRadius::same(13))
+            .inner_margin(egui::Margin::symmetric(15, 11))
             .show(ui, |ui| {
-                ui.add_space(6.0);
-                ui.horizontal(|ui| {
-                    ui.add_sized(
-                        [220.0, 36.0],
-                        egui::TextEdit::singleline(&mut self.new_name).hint_text("名称, 如 GitHub"),
-                    );
-                    ui.add_sized(
-                        [ui.available_width() - 112.0, 36.0],
-                        egui::TextEdit::singleline(&mut self.new_password)
-                            .password(true)
-                            .hint_text("要保存的密码"),
-                    );
-                    if ui
-                        .add_sized([96.0, 36.0], egui::Button::new("加密保存"))
-                        .clicked()
-                    {
-                        self.add_entry();
-                    }
-                });
+                ui.label(RichText::new(message).size(13.0).color(color));
             });
     }
 
-    fn table(&mut self, ui: &mut egui::Ui) {
+    fn entries_section(&mut self, ui: &mut egui::Ui, palette: Palette) {
         ui.horizontal(|ui| {
-            ui.heading(RichText::new("已保存密码").size(20.0));
-            ui.label(RichText::new(format!("{} 项", self.data.entries.len())).weak());
-        });
-        ui.add_space(8.0);
-
-        let mut delete_index = None;
-        egui::Frame::group(ui.style()).show(ui, |ui| {
-            egui::Grid::new("vault-table")
-                .num_columns(4)
-                .striped(true)
-                .spacing([18.0, 14.0])
+            ui.label(
+                RichText::new("已保存密码")
+                    .size(21.0)
+                    .strong()
+                    .color(palette.text),
+            );
+            egui::Frame::new()
+                .fill(palette.raised)
+                .corner_radius(CornerRadius::same(9))
+                .inner_margin(egui::Margin::symmetric(9, 5))
                 .show(ui, |ui| {
-                    ui.label(RichText::new("名称").strong());
                     ui.label(
-                        RichText::new(if self.master_password.is_empty() {
-                            "加密结果"
-                        } else {
-                            "解密结果"
-                        })
-                        .strong(),
+                        RichText::new(self.data.entries.len().to_string())
+                            .size(12.0)
+                            .strong()
+                            .color(palette.muted),
                     );
-                    ui.label(RichText::new("复制").strong());
-                    ui.label(RichText::new("管理").strong());
-                    ui.end_row();
-                    for (index, entry) in self.data.entries.iter().enumerate() {
-                        ui.label(RichText::new(&entry.name).strong());
-                        let value = self.value_for(entry);
-                        ui.add_sized(
-                            [ui.available_width().max(300.0), 28.0],
-                            egui::Label::new(RichText::new(&value).monospace()).truncate(),
-                        );
-                        if ui
-                            .button("复制")
-                            .on_hover_text("复制当前显示的结果")
-                            .clicked()
-                        {
-                            ui.ctx().copy_text(value);
-                        }
-                        if ui.button("删除").on_hover_text("永久删除此条目").clicked() {
-                            delete_index = Some(index);
-                        }
-                        ui.end_row();
-                    }
                 });
         });
-        if let Some(index) = delete_index {
+        ui.add_space(9.0);
+
+        if self.data.entries.is_empty() {
+            Self::card(palette).show(ui, |ui| {
+                ui.add_space(22.0);
+                ui.vertical_centered(|ui| {
+                    egui::Frame::new()
+                        .fill(palette.raised)
+                        .corner_radius(CornerRadius::same(16))
+                        .inner_margin(15)
+                        .show(ui, |ui| {
+                            ui.label(
+                                RichText::new("＋")
+                                    .size(24.0)
+                                    .strong()
+                                    .color(palette.accent),
+                            );
+                        });
+                    ui.add_space(8.0);
+                    ui.label(
+                        RichText::new("保险箱还是空的")
+                            .size(17.0)
+                            .strong()
+                            .color(palette.text),
+                    );
+                    ui.label(
+                        RichText::new("输入统一密码, 然后添加第一条记录")
+                            .size(13.0)
+                            .color(palette.muted),
+                    );
+                });
+                ui.add_space(22.0);
+            });
+            return;
+        }
+
+        let rows: Vec<_> = self
+            .data
+            .entries
+            .iter()
+            .enumerate()
+            .map(|(index, entry)| (index, entry.name.clone(), self.value_for(entry)))
+            .collect();
+        let mut confirmed_delete = None;
+
+        for (index, name, value) in rows {
+            Self::card(palette).inner_margin(18).show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    let initial = name
+                        .chars()
+                        .next()
+                        .unwrap_or('?')
+                        .to_uppercase()
+                        .to_string();
+                    egui::Frame::new()
+                        .fill(palette.raised)
+                        .corner_radius(CornerRadius::same(12))
+                        .inner_margin(11)
+                        .show(ui, |ui| {
+                            ui.label(
+                                RichText::new(initial)
+                                    .size(16.0)
+                                    .strong()
+                                    .color(palette.accent),
+                            );
+                        });
+                    ui.vertical(|ui| {
+                        ui.label(RichText::new(&name).size(16.0).strong().color(palette.text));
+                        ui.label(
+                            RichText::new(if self.master_password.is_empty() {
+                                "当前显示加密结果"
+                            } else {
+                                "当前显示解密结果"
+                            })
+                            .size(12.0)
+                            .color(palette.muted),
+                        );
+                    });
+
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if self.pending_delete == Some(index) {
+                            if ui
+                                .add(
+                                    egui::Button::new(
+                                        RichText::new("确认删除").strong().color(Color32::WHITE),
+                                    )
+                                    .fill(palette.danger)
+                                    .corner_radius(CornerRadius::same(10)),
+                                )
+                                .clicked()
+                            {
+                                confirmed_delete = Some(index);
+                            }
+                            if ui.button("取消").clicked() {
+                                self.pending_delete = None;
+                            }
+                        } else {
+                            if ui
+                                .add(
+                                    egui::Button::new(RichText::new("删除").color(palette.danger))
+                                        .fill(palette.raised)
+                                        .corner_radius(CornerRadius::same(10)),
+                                )
+                                .on_hover_text("删除此条记录")
+                                .clicked()
+                            {
+                                self.pending_delete = Some(index);
+                            }
+                            if ui
+                                .add(
+                                    egui::Button::new(
+                                        RichText::new("复制").strong().color(Color32::WHITE),
+                                    )
+                                    .fill(palette.accent)
+                                    .corner_radius(CornerRadius::same(10)),
+                                )
+                                .on_hover_text("复制当前显示的结果")
+                                .clicked()
+                            {
+                                ui.ctx().copy_text(value.clone());
+                                self.status = Some((format!("已复制 {name}"), false));
+                            }
+                        }
+                    });
+                });
+                ui.add_space(11.0);
+                egui::Frame::new()
+                    .fill(palette.raised)
+                    .corner_radius(CornerRadius::same(11))
+                    .inner_margin(egui::Margin::symmetric(14, 11))
+                    .show(ui, |ui| {
+                        let response = ui.add_sized(
+                            [ui.available_width(), 22.0],
+                            egui::Label::new(
+                                RichText::new(&value)
+                                    .monospace()
+                                    .size(13.0)
+                                    .color(palette.text),
+                            )
+                            .truncate(),
+                        );
+                        response.on_hover_text(&value);
+                    });
+            });
+            ui.add_space(10.0);
+        }
+
+        if let Some(index) = confirmed_delete {
             self.data.entries.remove(index);
+            self.pending_delete = None;
             self.save();
         }
-        if self.data.entries.is_empty() {
-            ui.add_space(28.0);
-            ui.vertical_centered(|ui| {
-                ui.label(RichText::new("保险箱还是空的").size(18.0).strong());
-                ui.label(RichText::new("输入统一密码, 然后添加第一条密码").weak());
-            });
-        }
+    }
+
+    fn apply_style(ctx: &egui::Context, dark: bool, palette: Palette) {
+        let theme = if dark {
+            egui::Theme::Dark
+        } else {
+            egui::Theme::Light
+        };
+        ctx.set_theme(theme);
+        ctx.style_mut_of(theme, |style| {
+            style.spacing.item_spacing = egui::vec2(10.0, 10.0);
+            style.spacing.button_padding = egui::vec2(13.0, 9.0);
+            style.visuals.panel_fill = palette.background;
+            style.visuals.window_fill = palette.card;
+            style.visuals.extreme_bg_color = palette.raised;
+            style.visuals.selection.bg_fill = palette.accent;
+            style.visuals.selection.stroke = Stroke::new(1.0, Color32::WHITE);
+            style.visuals.window_corner_radius = CornerRadius::same(16);
+            style.visuals.menu_corner_radius = CornerRadius::same(12);
+
+            style.visuals.widgets.noninteractive.fg_stroke = Stroke::new(1.0, palette.text);
+            style.visuals.widgets.noninteractive.bg_fill = palette.card;
+            style.visuals.widgets.noninteractive.bg_stroke = Stroke::new(1.0, palette.border);
+            style.visuals.widgets.noninteractive.corner_radius = CornerRadius::same(10);
+
+            style.visuals.widgets.inactive.fg_stroke = Stroke::new(1.0, palette.text);
+            style.visuals.widgets.inactive.bg_fill = palette.raised;
+            style.visuals.widgets.inactive.bg_stroke = Stroke::new(1.0, palette.border);
+            style.visuals.widgets.inactive.corner_radius = CornerRadius::same(10);
+
+            style.visuals.widgets.hovered.fg_stroke = Stroke::new(1.0, palette.text);
+            style.visuals.widgets.hovered.bg_fill = palette.accent_hover;
+            style.visuals.widgets.hovered.bg_stroke = Stroke::new(1.0, palette.accent_hover);
+            style.visuals.widgets.hovered.corner_radius = CornerRadius::same(10);
+
+            style.visuals.widgets.active.fg_stroke = Stroke::new(1.0, Color32::WHITE);
+            style.visuals.widgets.active.bg_fill = palette.accent;
+            style.visuals.widgets.active.bg_stroke = Stroke::new(1.0, palette.accent);
+            style.visuals.widgets.active.corner_radius = CornerRadius::same(10);
+        });
     }
 }
 
@@ -293,55 +665,46 @@ fn vault_data_path() -> PathBuf {
 
 impl eframe::App for VaultApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
-        let ctx = ui.ctx().clone();
-        let visuals = if self.dark_mode {
-            egui::Visuals::dark()
-        } else {
-            egui::Visuals::light()
-        };
-        ctx.set_visuals(visuals);
-        ui.style_mut().spacing.item_spacing = egui::vec2(10.0, 10.0);
-        ctx.style_mut_of(
-            if self.dark_mode {
-                egui::Theme::Dark
-            } else {
-                egui::Theme::Light
-            },
-            |style| {
-                style.spacing.item_spacing = egui::vec2(10.0, 10.0);
-                style.visuals.widgets.active.bg_stroke =
-                    Stroke::new(1.0, Color32::from_rgb(109, 124, 255));
-                style.visuals.selection.bg_fill = Color32::from_rgb(82, 98, 230);
-            },
-        );
-        egui::CentralPanel::default().show(ui, |ui| {
-            egui::ScrollArea::vertical().show(ui, |ui| {
-                ui.set_max_width(1100.0);
-                self.header(ui);
-                ui.add_space(18.0);
-                self.master_input(ui);
-                ui.add_space(12.0);
-                self.add_form(ui);
-                if let Some((message, is_error)) = &self.status {
-                    let color = if *is_error {
-                        Color32::from_rgb(225, 82, 82)
-                    } else {
-                        Color32::from_rgb(62, 174, 126)
-                    };
-                    ui.label(RichText::new(message).color(color));
-                }
-                ui.add_space(20.0);
-                self.table(ui);
-                ui.add_space(16.0);
-                ui.label(
-                    RichText::new(
-                        "提示: 本设计不验证统一密码. 错误密码会产生错误结果, 请自行辨认.",
-                    )
-                    .weak()
-                    .size(12.0),
-                );
+        let palette = Palette::for_mode(self.dark_mode);
+        Self::apply_style(ui.ctx(), self.dark_mode, palette);
+
+        egui::CentralPanel::default()
+            .frame(egui::Frame::new().fill(palette.background).inner_margin(0))
+            .show(ui, |ui| {
+                egui::ScrollArea::vertical()
+                    .auto_shrink([false, false])
+                    .show(ui, |ui| {
+                        let width = ui.available_width().min(CONTENT_WIDTH);
+                        let side_margin = ((ui.available_width() - width) * 0.5).max(20.0);
+                        ui.horizontal(|ui| {
+                            ui.add_space(side_margin);
+                            ui.vertical(|ui| {
+                                ui.set_width((ui.available_width() - side_margin).min(width));
+                                ui.add_space(24.0);
+                                self.header(ui, palette);
+                                ui.add_space(24.0);
+                                self.master_card(ui, palette);
+                                ui.add_space(14.0);
+                                self.add_card(ui, palette);
+                                if self.status.is_some() {
+                                    ui.add_space(12.0);
+                                    self.status_card(ui, palette);
+                                }
+                                ui.add_space(25.0);
+                                self.entries_section(ui, palette);
+                                ui.add_space(12.0);
+                                ui.label(
+                                    RichText::new(
+                                        "Helm 不验证统一密码. 错误密码会产生错误结果, 请自行辨认.",
+                                    )
+                                    .size(12.0)
+                                    .color(palette.muted),
+                                );
+                                ui.add_space(28.0);
+                            });
+                        });
+                    });
             });
-        });
     }
 }
 

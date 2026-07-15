@@ -1420,6 +1420,7 @@ dependencies = [
  "chacha20",
  "eframe",
  "getrandom 0.4.3",
+ "image",
  "serde",
  "serde_json",
  "tempfile",
